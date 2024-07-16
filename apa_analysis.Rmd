@@ -1,0 +1,536 @@
+---
+title: "test"
+output: html_document
+date: "2024-07-15"
+---
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(PASTA)
+library(ggplot2)
+library(EnsDb.Hsapiens.v86)
+library(Azimuth)
+```
+
+Assign wildtype or mutant based on criteria from paper:
+"Single cells were assigned mutant or wild-type genotype status as follows: cells with one or more mutant UMIs were assigned as mutant cells, and cells with no mutant UMIs and at least one wild-type UMI were assigned as wild-type."
+
+CH01 = CH243
+CH02 = CH315
+CH03 = CH489
+CH04 = CH502
+
+create seurat object and annotate cell types 
+load in the data
+###243
+```{r}
+options(Seurat.object.assay.calcn = TRUE)
+CH243.data <- Read10X(data.dir = "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/CHIP243/outs/filtered_feature_bc_matrix")
+# Initialize the Seurat object with the raw (non-normalized data).
+CH243 <- CreateSeuratObject(counts = CH243.data, project = "243", min.cells = 3, min.features = 200)
+
+# rename cells
+CH243 <- RenameCells(object = CH243, new.names = gsub(Cells(CH243), pattern = "-1", replacement = ""))
+
+# add metadata
+genotype_CH243 <- read.table(file = '/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_non_isoform/data/CH01/GSM4790032_CH01.DNMT3A.tsv', sep = ' ', header = TRUE)
+genotype_CH243$BC <- gsub(genotype_CH243$BC, pattern = "-1", replacement = "")
+genotype_CH243$status <- ifelse(genotype_CH243$MUT.calls >= 1, "MUT", ifelse(genotype_CH243$WT.calls >= 1, "WT", NA))
+
+##CHECK if there are any with neither wt or mut
+sum(is.na(genotype_CH243$status))
+
+# add genotypes to seurat object
+genotype_metadata <- genotype_CH243$status
+names(genotype_metadata) <- genotype_CH243$BC
+CH243 <- AddMetaData(object = CH243, metadata = genotype_metadata, col.name = 'genotype')
+```
+
+
+```{r}
+# Add polyA
+counts.file <-  "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/polyApipe/CHIP243_polyA/CHIP243_counts.tab.gz"
+peak.file <- "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/polyApipe/CHIP243_polyA/CHIP243_polyA_peaks.gff"
+fragment.file <- "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/polyApipe/sinto_blocks_out/243_blocks.blocks.sort.uniq.bed.gz"
+polyAdb.file <- "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/human_PAS_hg38.txt"
+
+polyA.counts.243 = ReadPolyApipe(counts.file = counts.file, peaks.file = peak.file, filter.chromosomes = FALSE, min.features = 10, min.cells = 10)
+polyA.assay.243 = CreatePolyAAssay(counts = polyA.counts.243, genome = "hg38", fragments = fragment.file, validate.fragments = FALSE)
+
+# add annotations to polyA.assay
+annotations <- GetGRangesFromEnsDb(ensdb = EnsDb.Hsapiens.v86)
+genome(annotations) <- "hg38"
+Annotation(polyA.assay.243) <- annotations
+
+```
+
+
+###315
+```{r}
+options(Seurat.object.assay.calcn = TRUE)
+CH315.data <- Read10X(data.dir = "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/CHIP315/outs/filtered_feature_bc_matrix")
+# Initialize the Seurat object with the raw (non-normalized data).
+CH315 <- CreateSeuratObject(counts = CH315.data, project = "315", min.cells = 3, min.features = 200)
+
+# rename cells
+CH315 <- RenameCells(object = CH315, new.names = gsub(Cells(CH315), pattern = "-1", replacement = ""))
+
+# add metadata
+genotype_CH315 <- read.table(file = '/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_non_isoform/data/CH02/GSM4790033_CH02.DNMT3A.tsv', sep = ' ', header = TRUE)
+genotype_CH315$BC <- gsub(genotype_CH315$BC, pattern = "-2", replacement = "")
+genotype_CH315$status <- ifelse(genotype_CH315$MUT.calls >= 1, "MUT", ifelse(genotype_CH315$WT.calls >= 1, "WT", NA))
+
+##CHECK if there are any with neither wt or mut
+sum(is.na(genotype_CH315$status))
+
+# add genotypes to seurat object
+genotype_metadata <- genotype_CH315$status
+names(genotype_metadata) <- genotype_CH315$BC
+CH315 <- AddMetaData(object = CH315, metadata = genotype_metadata, col.name = 'genotype')
+
+
+# Add polyA
+counts.file <-  "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/polyApipe/CHIP315_polyA/CHIP315_counts.tab.gz"
+peak.file <- "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/polyApipe/CHIP315_polyA/CHIP315_polyA_peaks.gff"
+fragment.file <- "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/polyApipe/sinto_blocks_out/315_blocks.blocks.sort.uniq.bed.gz"
+polyAdb.file <- "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/human_PAS_hg38.txt"
+
+polyA.counts.315 = ReadPolyApipe(counts.file = counts.file, peaks.file = peak.file, filter.chromosomes = FALSE, min.features = 10, min.cells = 10)
+polyA.assay.315 = CreatePolyAAssay(counts = polyA.counts.315, genome = "hg38", fragments = fragment.file, validate.fragments = FALSE)
+
+# add annotations to polyA.assay
+Annotation(polyA.assay.315) <- annotations
+
+```
+
+###502
+```{r}
+options(Seurat.object.assay.calcn = TRUE)
+CH502.data <- Read10X(data.dir = "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/CHIP502/outs/filtered_feature_bc_matrix")
+# Initialize the Seurat object with the raw (non-normalized data).
+CH502 <- CreateSeuratObject(counts = CH502.data, project = "502", min.cells = 3, min.features = 200)
+
+# rename cells
+CH502 <- RenameCells(object = CH502, new.names = gsub(Cells(CH502), pattern = "-1", replacement = ""))
+
+# add metadata
+genotype_CH502 <- read.table(file = '/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_non_isoform/data/CH04/GSM4790035_CH04.DNMT3A.tsv', sep = ' ', header = TRUE)
+genotype_CH502$BC <- gsub(genotype_CH502$BC, pattern = "-4", replacement = "")
+genotype_CH502$status <- ifelse(genotype_CH502$MUT.calls >= 1, "MUT", ifelse(genotype_CH502$WT.calls >= 1, "WT", NA))
+
+##CHECK if there are any with neither wt or mut
+sum(is.na(genotype_CH502$status))
+
+# add genotypes to seurat object
+genotype_metadata <- genotype_CH502$status
+names(genotype_metadata) <- genotype_CH502$BC
+CH502 <- AddMetaData(object = CH502, metadata = genotype_metadata, col.name = 'genotype')
+
+
+# Add polyA
+counts.file <-  "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/polyApipe/CHIP502_polyA/CHIP502_counts.tab.gz"
+peak.file <- "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/polyApipe/CHIP502_polyA/CHIP502_polyA_peaks.gff"
+fragment.file <- "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/polyApipe/sinto_blocks_out/502_blocks.blocks.sort.uniq.bed.gz"
+polyAdb.file <- "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/human_PAS_hg38.txt"
+
+polyA.counts.502 = ReadPolyApipe(counts.file = counts.file, peaks.file = peak.file, filter.chromosomes = FALSE, min.features = 10, min.cells = 10)
+polyA.assay.502 = CreatePolyAAssay(counts = polyA.counts.502, genome = "hg38", fragments = fragment.file, validate.fragments = FALSE)
+
+# add annotations to polyA.assay
+Annotation(polyA.assay.502) <- annotations
+
+```
+
+
+use code to merge because I get error:
+Error in warn(message = "Mismatch in strand values for the same feature when merging,\n          converting strand to * for that feature") : 
+  could not find function "warn"
+```{r}
+x = polyA.assay.243
+y = c(polyA.assay.315, polyA.assay.502)
+add.cell.ids = NULL
+cells= NULL
+chromatin.x <- as(object = x, Class = 'ChromatinAssay')
+if (is.list(y)) {
+  chromatin.y <- list()
+  for (i in 1:length(y)) {
+    chromatin.y[[i]] <- as(object = y[[i]], Class = 'ChromatinAssay')
+  }
+} else {
+  chromatin.y <- as(object = y, Class = 'ChromatinAssay')
+}
+
+chromatin.m <- merge(x = chromatin.x, y = chromatin.y,add.cells.ids = add.cell.ids)
+#saveRDS(chromatin.m, file = "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/seurat_objects/chromatin.m")
+#chromatin.m <- readRDS(file = "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/seurat_objects/chromatin.m")
+
+polyA.m <- as(object = chromatin.m, Class = 'polyAsiteAssay')
+```
+
+
+filter by QC metrics and run azimuth
+```{r}
+# merge samples
+CH <- merge(CH243, y = c(CH315, CH502), project = "CH")
+
+DefaultAssay(CH) <- "RNA"
+CH[["percent.mt"]] <- PercentageFeatureSet(CH, pattern = "^MT-")
+VlnPlot(CH, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/violin_qc.pdf", device = pdf, width = 12, height=10)
+CH <- subset(CH, subset = nFeature_RNA > 2000 & nFeature_RNA < 7500 & percent.mt < 15)
+
+####
+# intall bonemarrowref
+#InstallData("bonemarrowref")
+#bonemarrowref <- LoadData("bonemarrowref", "azimuth")
+
+# run azimuth for each sample
+obj.list <- SplitObject(CH, split.by = "orig.ident")
+obj.list <- lapply(obj.list, FUN = RunAzimuth, reference = "bonemarrowref")
+CH <- merge(obj.list[[1]], obj.list[2:length(obj.list)], merge.dr = "ref.umap")
+
+Idents(CH) <- CH$predicted.celltype.l1
+DimPlot(CH, reduction = "ref.umap", label = TRUE, repel=TRUE)
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/ref_umap_celltype1.pdf", device = pdf, width = 10, height=8)
+Idents(CH) <- CH$orig.ident
+DimPlot(CH, reduction = "ref.umap", label = TRUE, cols = c("pink3", "steelblue3", "darkolivegreen"), repel = TRUE)
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/ref_umap_sample.pdf", device = pdf, width = 10, height=8)
+# just genotyped cells
+cell_names <- rownames(CH[["RNA"]]@cells)
+genotyped_cells_indices <- which(!is.na(CH@meta.data[["genotype"]]))
+genotyped_cells <- cell_names[genotyped_cells_indices]
+DimPlot(CH, cells = genotyped_cells, group.by = "genotype")
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/ref_umap_genotype.pdf", device = pdf, width = 12, height=10)
+```
+
+
+add polyA
+```{r}
+#switch colnames(polyA.m) label to suffix instead of prefix
+colnames(polyA.m)[grep("^1_", colnames(polyA.m))] <- paste0(gsub( "^1_", "", colnames(polyA.m)), "_1", sep = "")[grep("^1_", colnames(polyA.m))]
+colnames(polyA.m)[grep("^2_", colnames(polyA.m))] <- paste0(gsub( "^2_", "", colnames(polyA.m)), "_2", sep = "")[grep("^2_", colnames(polyA.m))]
+colnames(polyA.m)[grep("^3_", colnames(polyA.m))] <- paste0(gsub( "^3_", "", colnames(polyA.m)), "_3", sep = "")[grep("^3_", colnames(polyA.m))]
+
+# only use cells in both assays
+cells = intersect(colnames(CH), colnames(polyA.m))
+polyA.m = subset(polyA.m, cells = cells)
+CH = subset(CH, cells = cells)
+CH[["polyA"]] <- polyA.m  #add polyA assay to Seurat object 
+DefaultAssay(CH) <- "polyA"
+```
+
+save object
+```{r}
+SaveSeuratRds(CH, "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/seurat_objects/CH.Rds")
+CH <- LoadSeuratRds("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/seurat_objects/CH.Rds")
+```
+
+subset and show umap
+```{r}
+# subset by hspc and mono
+CH <- subset(x = CH, subset = predicted.celltype.l1 == c("HSPC", "Mono"))
+Idents(CH) <- CH$predicted.celltype.l2
+DimPlot(CH, reduction = "ref.umap", label = TRUE, repel = TRUE)
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/figures/cell_types2_ref_umap_subset.pdf", device = pdf, width = 10, height=8)
+```
+
+
+non reference umap
+```{r}
+DefaultAssay(CH) <- "RNA"
+
+# get clusters
+CH <- NormalizeData(CH)
+CH <- FindVariableFeatures(CH)
+CH <- ScaleData(CH)
+CH <- RunPCA(CH)
+CH <- FindNeighbors(CH, dims = 1:30, reduction = "pca")
+CH <- FindClusters(CH, resolution = 2, cluster.name = "unintegrated_clusters")
+CH <- RunUMAP(CH, dims = 1:30, reduction = "pca", reduction.name = "umap.unintegrated")
+DimPlot(CH, reduction = "umap.unintegrated")
+
+# clusters by sample
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/figures/umap_clusters.pdf", device = pdf, width = 10, height=8)
+Idents(CH) <- CH$predicted.celltype.l2
+DimPlot(CH, reduction = "umap.unintegrated")
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/figures/umap_clusters_celltype2.pdf", device = pdf, width = 10, height=8)
+```
+
+
+integrate the samples to view
+```{r}
+# already split
+#CH[["RNA"]] <- split(CH[["RNA"]], f = CH$orig.ident)
+CH <- IntegrateLayers(object = CH, method = CCAIntegration, orig.reduction = "pca", new.reduction = "integrated.cca", verbose = FALSE)
+CH <- FindNeighbors(CH, reduction = "integrated.cca", dims = 1:30)
+CH <- FindClusters(CH, resolution = 2, cluster.name = "cca_clusters")
+CH <- RunUMAP(CH, reduction = "integrated.cca", dims = 1:30, reduction.name = "umap.cca")
+Idents(CH) <- CH$predicted.celltype.l2
+DimPlot(CH, reduction = "umap.cca")
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/figures/umap_celltype2_integrated.pdf", device = pdf, width = 10, height=8)
+Idents(CH) <- CH$cca_clusters
+
+DimPlot(CH, reduction = "umap.cca")
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/figures/umap_celltype_integrated.pdf", device = pdf, width = 10, height=8)
+
+
+# remove outlier cluster/monocytes - only select main hspc cluster
+plot <- DimPlot(CH, reduction = "umap.cca", label=TRUE)
+cells.located <- CellSelector(plot = plot)
+# remove cells.located
+CH_filter <- subset(CH, cells = cells.located)
+DimPlot(CH_filter, reduction = "umap.cca", label=TRUE, repel=TRUE)
+Idents(CH_filter) <- "orig.ident"
+DimPlot(CH_filter, reduction = "umap.cca", label=TRUE)
+VlnPlot(CH_filter, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+
+assign cell cycle scores - have to combine layers first
+```{r}
+DefaultAssay(CH_filter) <- "RNA"
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+CH_filter[["joined"]] <- JoinLayers(CH_filter[["RNA"]])
+CH_filter <- CellCycleScoring(CH_filter, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE, assay = "joined")
+
+# VIEW 
+RidgePlot(CH_filter, features = c("PCNA", "TOP2A", "MCM6", "MKI67"), ncol = 2)
+```
+
+save object to transfer - run CalcPolyAResiduals
+```{r}
+SaveSeuratRds(CH_filter, "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/seurat_objects/CH_filter.Rds")
+#CH_filter <- LoadSeuratRds("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/seurat_objects/CH_filter.Rds")
+```
+
+rerun for number of pcs/resolution
+```{r}
+DefaultAssay(CH_filter) <- "RNA"
+CH_filter <- NormalizeData(CH_filter)
+CH_filter <- FindVariableFeatures(CH_filter)
+CH_filter <- ScaleData(CH_filter)
+CH_filter <- RunPCA(CH_filter)
+CH_filter <- FindNeighbors(CH_filter, dims = 1:20, reduction = "pca")
+CH_filter <- FindClusters(CH_filter, resolution = 1, cluster.name = "unintegrated_clusters")
+CH_filter <- RunUMAP(CH_filter, dims = 1:20, reduction = "pca", reduction.name = "umap.unintegrated")
+DimPlot(CH_filter, reduction = "umap.unintegrated")
+Idents(CH_filter) <- "orig.ident"
+
+CH_filter <- IntegrateLayers(object = CH_filter, method = CCAIntegration, orig.reduction = "pca", new.reduction = "integrated.cca", verbose = FALSE)
+CH_filter <- FindNeighbors(CH_filter, reduction = "integrated.cca", dims = 1:20)
+CH_filter <- FindClusters(CH_filter, resolution = 1, cluster.name = "cca_clusters")
+CH_filter <- RunUMAP(CH_filter, reduction = "integrated.cca", dims = 1:20, reduction.name = "umap.cca")
+Idents(CH_filter) <- CH_filter$orig.ident
+DimPlot(CH_filter, reduction = "umap.cca", label = TRUE, repel = TRUE)
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/figures/umap_celltype_integrated_filtered.pdf", device = pdf, width = 10, height=8)
+```
+
+find markers between clusters
+```{r}
+# join new layers
+CH_filter[["joined"]] <- JoinLayers(CH_filter[["RNA"]])
+
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+all.markers <- FindAllMarkers(object = CH_filter,  assay="joined")
+
+all.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1) %>%
+    slice_head(n = 10) %>%
+    ungroup() -> top10
+
+Idents(CH_filter) <- CH_filter$cca_clusters
+DoHeatmap(CH_filter, features = top10$gene) + NoLegend()
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/figures/cluster_markers_new.pdf", device = pdf, width = 14, height=14)
+```
+
+```{r}
+DefaultAssay(CH_filter) <- "polyA"
+polyAdb.file <- "/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/human_PAS_hg38.txt"
+CH_filter <- GetPolyADbAnnotation(CH_filter, polyAdb.file = polyAdb.file, max.dist = 50)
+meta <- CH_filter[["polyA"]][[]]
+head(meta[, c(1, 13, 15, 18)])
+```
+
+```{r}
+features.last.exon = rownames(subset(meta, Intron.exon_location == "3'_most_exon"))
+length(features.last.exon)
+
+# set the na to something else 
+CH_filter$residuals_groups = "other"
+CH_filter$residuals_groups[CH_filter$genotype %in% "WT"] = "background"
+CH_filter$residuals_groups[CH_filter$genotype %in% "MUT"] = "test"
+```
+
+subset for just hsc
+```{r}
+CH_filter <- subset(x = CH_filter, subset = predicted.celltype.l2 == c("HSC"))
+```
+
+
+```{r}
+Idents(CH_filter) <- CH_filter$residuals_groups
+CH_filter <- CalcPolyAResiduals(CH_filter, background = "background", assay = "polyA", features = features.last.exon, gene.names = "Gene_Symbol", verbose = TRUE)
+```
+
+perform dimensional reduction on polyA residuals 
+```{r}
+DefaultAssay(CH_filter) <- "polyA"
+CH_filter <- FindVariableFeatures(CH_filter, selection.method = "residuals", gene.names = "Gene_Symbol")
+CH_filter <- RunPCA(CH_filter)
+CH_filter <- RunUMAP(CH_filter, dims = 1:30, reduction.name = "polyA.umap", reduction.key = "polyAUMAP_")
+```
+
+view umap
+```{r}
+# split by genotype
+DimPlot(CH_filter, group.by = "genotype", reduction = "polyA.umap", cols= c("lightskyblue", "brown")) + ggtitle("polyA UMAP")
+
+# just genotyped cells
+cell_names <- rownames(CH_filter@assays[["RNA"]]@cells)
+genotyped_cells_indices <- which(!is.na(CH_filter@meta.data[["genotype"]]))
+genotyped_cells <- cell_names[genotyped_cells_indices]
+DimPlot(CH_filter, cells = genotyped_cells, group.by = "genotype", reduction = "polyA.umap", cols= c("lightskyblue", "brown")) + ggtitle("polyA UMAP")
+
+# group by sample
+DimPlot(object = CH_filter, group.by = "orig.ident", reduction = "polyA.umap") + ggtitle("polyA UMAP")
+DimPlot(CH_filter, group.by = "predicted.celltype.l2", reduction = "polyA.umap") + ggtitle("Level 2 Annotations")
+```
+
+number of mutant & wt in each cluster/celltype
+```{r}
+celltype_genotype <- table(CH_filter$predicted.celltype.l2, CH_filter$genotype)
+sample_genotype <- table(CH_filter$orig.ident, CH_filter$genotype)
+
+# distribution of samples in celltypes - only genotypes
+CH_genotyped <- subset(CH_filter, subset = (genotype == "WT" | genotype =="MUT"))
+sample_cell_genotype <- table(CH_genotyped$orig.ident, CH_genotyped$predicted.celltype.l2, CH_genotyped$genotype)
+#sample_celltype[,c(4, 5, 7, 9),]
+
+# distribution of backgroun/test in celltypes - only genotypes
+sample_group_genotype <- table(CH_genotyped$orig.ident, CH_genotyped$residuals_groups, CH_genotyped$genotype)
+#sample_celltype[,c(4, 5, 7, 9),]
+```
+
+get differential polyA
+```{r}
+# set donor as metadata
+CH_filter$donor <- "other"
+CH_filter$donor[CH_filter$orig.ident %in% "243"] = "sample1"
+CH_filter$donor[CH_filter$orig.ident %in% "314"] = "sample2"
+CH_filter$donor[CH_filter$orig.ident %in% "502"] = "sample3"
+
+# calculate differential polyA
+Idents(CH_filter) <- CH_filter$genotype
+m.genotype <- FindDifferentialPolyA(CH_filter, ident.1 = "WT", ident.2 = "MUT", covariates = c("donor", "nCount_RNA", "Phase"))
+head(m.genotype, 10)
+
+# caluculate q value
+library(qvalue)
+pvalues <- m.genotype$p.value
+qobj <- qvalue(p = pvalues)
+m.genotype$qvalue <- qobj$qvalues
+
+```
+
+volcano plot
+```{r}
+library(ggrepel)
+m.genotype = m.genotype[order(m.genotype$p.val, decreasing = F),]
+m.genotype$log10pval = -log10(m.genotype$p.value)
+
+head(m.genotype, 10)
+l = rep(NA, nrow(m.genotype))
+cond = abs(m.genotype$Estimate) > 0.01 & m.genotype$p.value < .05
+l[cond] = m.genotype$symbol[cond]
+ggplot(m.genotype, aes(x = Estimate, y = log10pval)) +
+  geom_point() +
+  xlim(-max(abs(m.genotype$Estimate)),max(abs(m.genotype$Estimate))) +
+  geom_hline(yintercept = -log10(0.05), lty = 2) +
+  geom_vline(xintercept = c(-0.01,0.01), lty= 2) +
+  geom_text_repel(label = l) +
+  theme_classic() + labs(title = "HSC")
+
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/volcano_genes.pdf", device = pdf, width = 12, height=10)
+
+# highlight genes in significant pathways
+highlight_points <- m.genotype[which(m.genotype$symbol) == , ]
+```
+
+GO analysis
+gene count is the number of genes enriched in a GO term. Gene ratio is the percentage of total DEGs in a given GO term.
+```{r}
+library(clusterProfiler)
+library(org.Hs.eg.db)
+genotype.genes <- unique(subset(m.genotype, p.value < 0.05)$symbol)
+g.go <- bitr(genotype.genes, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+# can try different lists ex- bp, hallmark
+go.results <- enrichGO(g.go$ENTREZID, "org.Hs.eg.db", ont = "BP", pvalueCutoff = 0.05)
+go.results <- setReadable(go.results, OrgDb = org.Hs.eg.db)
+go.results.simp <- simplify(go.results, cutoff = 0.7, by = "p.adjust", select_fun = min)
+p <- dotplot(go.results.simp)
+p + scale_colour_gradient(low = "maroon", high = "grey")
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/pathways.pdf", device = pdf, width = 10, height=10)
+
+# plot top three
+p[["data"]] <- p[["data"]][1:3,]
+p + scale_colour_gradient(low = "maroon", high = "grey")
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/pathways.pdf", device = pdf, width = 10, height=10)
+```
+
+get genes in each process
+```{r}
+significant_ind <- which(go.results@result[["qvalue"]] < .05)
+pathway_genes <- go.results@result[significant_ind, c("Description","geneID")]
+pathway_genes
+```
+
+plot
+```{r}
+# get cell names from each sample
+sample1_cells <- gsub( "_1", "", colnames(CH_genotyped))[grep("_1", colnames(CH_genotyped))]
+sample1_cell_names <- paste0("1_", sample1_cells, sep = "")
+sample2_cells <- gsub( "_2", "", colnames(CH_genotyped))[grep("_2", colnames(CH_genotyped))]
+sample2_cell_names <- paste0("2_", sample2_cells, sep = "")
+sample3_cells <- gsub( "_3", "", colnames(CH_genotyped))[grep("_3", colnames(CH_genotyped))]
+sample3_cell_names <- paste0("3_", sample3_cells, sep = "")
+# subset fragment of original chromatin object
+chromatin.m@fragments[[1]] <- subset(chromatin.m@fragments[[1]], cells = sample1_cell_names)
+chromatin.m@fragments[[2]] <- subset(chromatin.m@fragments[[2]], cells = sample2_cell_names)
+chromatin.m@fragments[[3]] <- subset(chromatin.m@fragments[[3]], cells = sample3_cell_names)
+
+# replace with chromatin fragment file
+CH_genotyped@assays[["polyA"]]@fragments <- chromatin.m@fragments
+
+# fix names of the fragment file
+names(CH_genotyped@assays[["polyA"]]@fragments[[1]]@cells) <- paste0(CH_genotyped@assays[["polyA"]]@fragments[[1]]@cells, "_1", sep = "")
+names(CH_genotyped@assays[["polyA"]]@fragments[[2]]@cells) <- paste0(CH_genotyped@assays[["polyA"]]@fragments[[2]]@cells, "_2", sep = "")
+names(CH_genotyped@assays[["polyA"]]@fragments[[3]]@cells) <- paste0(CH_genotyped@assays[["polyA"]]@fragments[[3]]@cells, "_3", sep = "")
+
+# add annotations to polyA.assay
+annotations <- GetGRangesFromEnsDb(ensdb = EnsDb.Hsapiens.v86)
+seqlevels(annotations) <- paste0('chr', seqlevels(annotations))
+genome(annotations) <- "hg38"
+Annotation(CH_genotype[["polyA"]]) <- annotations
+
+Idents(CH_genotyped) <- "genotype"
+PolyACoveragePlot(CH_genotyped, gene =  "RPAP3", split.by ="orig.ident")
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/coverage_rpap3.pdf", device = pdf, width = 10, height=10)
+# plot for each sample
+CH_243 <- subset(x = CH_genotyped, subset = orig.ident == c("243"))
+CH_315 <- subset(x = CH_genotyped, subset = orig.ident == c("315"))
+CH_502 <- subset(x = CH_genotyped, subset = orig.ident == c("502"))
+PolyACoveragePlot(CH_243, gene =  "EIF3H")
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/coverage_rpap3_243.pdf", device = pdf, width = 12, height=10)
+PolyACoveragePlot(CH_315, gene =  "YWHAE")
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/coverage_rpap3_315.pdf", device = pdf, width = 12, height=10)
+PolyACoveragePlot(CH_502, gene =  "YWHAE")
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/coverage_rpap3_502.pdf", device = pdf, width = 12, height=10)
+
+```
+
+
+
+
+
