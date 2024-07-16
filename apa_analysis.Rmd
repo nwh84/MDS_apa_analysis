@@ -455,7 +455,29 @@ ggplot(m.genotype, aes(x = Estimate, y = log10pval)) +
 ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/volcano_genes.pdf", device = pdf, width = 12, height=10)
 
 # highlight genes in significant pathways
-highlight_points <- m.genotype[which(m.genotype$symbol) == , ]
+genes_in_pathways_all <- unique(unlist(strsplit(pathway_genes$geneID, split = "/")))
+proteasomal_protein_catabolic_process <- unique(unlist(strsplit(pathway_genes$geneID[2], split = "/")))
+nucleocytoplasmic_transport <- unique(unlist(strsplit(pathway_genes$geneID[3], split = "/")))
+highlight_points <- m.genotype[which(m.genotype$symbol %in% genes_in_pathways & abs(highlight_points$Estimate) > 0.01 & highlight_points$p.value < .05), ]
+highlight_points_proteasomal <- m.genotype[which(m.genotype$symbol %in% proteasomal_protein_catabolic_process & abs(m.genotype$Estimate) > 0.01 & m.genotype$p.value < .05), ]
+highlight_points_transport <- m.genotype[which(m.genotype$symbol %in% nucleocytoplasmic_transport & abs(m.genotype$Estimate) > 0.01 & m.genotype$p.value < .05), ]
+
+
+# label points
+ggplot(m.genotype, aes(x = Estimate, y = log10pval)) +
+    labs(title = "HSC", color = "Legend:")+
+  geom_text_repel(label = l)+ 
+    geom_point() +
+    xlim(-max(abs(m.genotype$Estimate)), max(abs(m.genotype$Estimate))) +
+    geom_hline(yintercept = -log10(0.05), lty = 2) +
+    geom_vline(xintercept = c(-0.01, 0.01), lty = 2) +
+    geom_point(data = highlight_points_proteasomal, mapping=aes(x = Estimate, y = log10pval, color = 'blue'),size = 2, fill = "blue")+
+    geom_point(data = highlight_points_transport, mapping=aes(x = Estimate, y = log10pval, color = 'red'),size = 2, fill = "red")+
+    scale_color_manual(values = c("blue", "red"),
+                       labels = c("proteasomal protein catabolic process", "nucleocytoplasmic transport")) +
+    scale_shape_identity() +
+    theme_classic()
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/volcano_genes_highlight.pdf", device = pdf, width = 12, height=10)
 ```
 
 GO analysis
