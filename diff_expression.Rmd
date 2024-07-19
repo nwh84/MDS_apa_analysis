@@ -1,0 +1,328 @@
+---
+title: "diff expression analysis"
+output: html_document
+date: "2024-06-18"
+---
+
+load in object
+```{r}
+library(Seurat)
+# load object from apa analysis
+CH <- LoadSeuratRds("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/seurat_objects/CH.Rds")
+```
+
+
+filter for just hsc
+```{r}
+ch_HSC <- subset(CH, subset = predicted.celltype.l2 == "HSC")
+
+# join layers 
+ch_HSC[["joined"]] <- JoinLayers(ch_HSC[["RNA"]])
+DefaultAssay(ch_HSC) <- "joined"
+#normalize
+ch_HSC <- NormalizeData(ch_HSC)
+```
+
+get genes that are significant from polyA - only if running dge with these genes
+```{r}
+#polyA_significant <- unique(m.genotype[which(m.genotype$p.value < .05),c("symbol")])
+```
+
+prepare data matrix
+```{r}
+# filter out mito, ribo, lncRNA and ensg features
+matching_indices <- unique(c(grep("^MT-", rownames(ch_HSC)), grep("^MRP", rownames(ch_HSC)), grep("^RPS", rownames(ch_HSC)), grep("^RPL", rownames(ch_HSC)), grep("^ENSG", rownames(ch_HSC)), grep("^LINC", rownames(ch_HSC)), grep("-AS1$", rownames(ch_HSC))))
+
+# subset by those features, will only keep rna/joined assay
+ch_HSC <- ch_HSC[-matching_indices,]
+
+# get top 2500 most variable genes
+ch_HSC <- FindVariableFeatures(ch_HSC, nfeatures = 2500)
+
+# counts data matrix
+mtx <- ch_HSC[["joined"]]@layers[["data"]]
+rownames(mtx) <- rownames(ch_HSC@assays[["joined"]])
+# counts data matrix variable genes
+var_genes <- ch_HSC[["joined"]][["vf_vst_counts_variable"]]
+var_genes_names <- rownames(var_genes)[var_genes$vf_vst_counts_variable]
+# get genes used in polyA analysis
+###meta <- CH_filter[["polyA"]][[]]
+polyA_genes <- meta$Gene_Symbol
+# subset to only genes in the joined assay
+#polyA_genes_rna <- intersect(polyA_genes, rownames(ch_HSC@assays[["joined"]]))
+polyA_genes_rna <- intersect(polyA_significant, rownames(ch_HSC@assays[["joined"]]))
+
+# run dge with var genes and polyA genes
+#mtx <- mtx[unique(c(var_genes_names, polyA_genes_rna)), ]
+# run dge with top var genes
+mtx <- mtx[var_genes_names, ]
+```
+
+run LMM
+```{r}
+library(lme4)
+library(ggplot2)
+library(ggrepel)
+
+metadata = ch_HSC@meta.data
+sample.column = "orig.ident"
+cluster.column = "predicted.celltype.l2"
+selected.clusters = "HSC"
+treatment.column = "genotype"
+treatment.levels = c("WT","MUT")
+reg = 1e-3
+
+# add cell barcodes
+colnames(mtx) <- rownames(ch_HSC@assays[["joined"]]@cells)
+
+m <- mtx
+  
+# apply the function to each rowname of m
+out = lapply(rownames(m), function(x) {
+    dev = as.vector(t(m[x, ]))
+    names(dev) = colnames(m)
+    temp = metadata
+    temp = temp[, c(sample.column, cluster.column, treatment.column)]
+    temp[, x] = dev[rownames(temp)]
+    temp = temp[temp[, treatment.column] %in% treatment.levels, ]
+    temp = temp[temp[, cluster.column] %in% selected.clusters, ]
+    temp = temp[complete.cases(temp), ]
+    temp = data.frame(motif = temp[, x], treatment = temp[, treatment.column], sample = temp[, sample.column])
+    lmm1 = suppressMessages(lmer(data = temp, formula = motif ~  treatment + (1 | sample), REML = F))
+    lmm2 = suppressMessages(lmer(data = temp, formula = motif ~  (1 | sample), REML = F))
+    out = anova(lmm1, lmm2)
+    pval = out$`Pr(>Chisq)`[2]
+    delta = mean(temp$motif[temp$treatment == treatment.levels[2]], na.rm = T) - mean(temp$motif[temp$treatment == treatment.levels[1]], na.rm = T)
+    fc = (mean(temp$motif[temp$treatment == treatment.levels[2]], na.rm = T)+reg)/(mean(temp$motif[temp$treatment == treatment.levels[1]], na.rm = T)+reg)
+    final = c(pval = pval, delta = delta, fc = fc)
+    return(final)
+  })
+
+names(out) = rownames(m)
+out = as.data.frame(do.call(rbind, out))
+out$fdr = p.adjust(out$pval, method = "fdr")
+out$feature = rownames(out)
+
+# sort by p value
+out <- out[order(out$pval, decreasing = F),]
+
+
+out$log10pval = -log10(out$fdr)
+out$log2fc = log2(out$fc)
+l = rep(NA, nrow(out))
+cond = abs(out$delta) > 0.01 & out$fdr < .05
+l[cond] = out$feature[cond]
+ggplot(out, aes(x = log2fc, y = log10pval)) +
+  geom_point() +
+  xlim(-max(abs(out$log2fc)),max(abs(out$log2fc))) +
+  geom_hline(yintercept = -log10(0.05), lty = 2) +
+  geom_vline(xintercept = c(-0.01,0.01), lty= 2) +
+  geom_text_repel(label = l) +
+  theme_classic() + labs(title = "DGE")
+
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/dge_volcano.pdf", device = pdf, width = 12, height=12)
+```
+
+
+get fold change from seurat
+```{r}
+DefaultAssay(CH) <- "RNA"
+# use only genes that we use for the lmm analysis
+#lmm_genes <- unique(c(var_genes_names, polyA_genes_rna))
+lmm_genes <- var_genes_names
+CH_lmm_genes <- CH[lmm_genes, ]
+
+pseudo_hsc <- AggregateExpression(CH_lmm_genes, assays = "RNA", return.seurat = T, group.by = c("genotype", "orig.ident","predicted.celltype.l2"))
+
+pseudo_hsc$celltype.stim <- paste(pseudo_hsc$predicted.celltype.l2, pseudo_hsc$genotype, sep = "_")
+
+Idents(pseudo_hsc) <- "celltype.stim"
+
+bulk.mono.de <- FindMarkers(object = pseudo_hsc, 
+                         ident.1 = "HSC_MUT", 
+                         ident.2 = "HSC_WT",
+                         test.use = "DESeq2")
+
+bulk.mono.de$feature <- rownames(bulk.mono.de)
+head(bulk.mono.de, n = 15)
+bulk.mono.de = bulk.mono.de[order(bulk.mono.de$p_val, decreasing = F),]
+```
+
+merge seurat result with lmm
+```{r}
+combine_df <- merge(out, bulk.mono.de[,c("avg_log2FC", "feature")], by = "feature")
+combine_df <- combine_df[order(combine_df$pval, decreasing = F),]
+combine_df <- combine_df[which(!is.na(combine_df$avg_log2FC)),]
+
+l = rep(NA, nrow(combine_df))
+cond = abs(combine_df$avg_log2FC) > 0.25 & combine_df$fdr < .05
+l[cond] = combine_df$feature[cond]
+
+ggplot(combine_df, aes(x = avg_log2FC, y = log10pval)) +
+  geom_point() +
+  xlim(-max(abs(combine_df$avg_log2FC)),max(abs(combine_df$avg_log2FC))) +
+  geom_hline(yintercept = -log10(0.05), lty = 2) +
+  geom_vline(xintercept = c(-0.25,0.25), lty= 2) +
+  geom_text_repel(label = l) +
+  theme_classic() + labs(title = "DGE")
+
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/dge_volcano_foldchange.pdf", device = pdf, width = 12, height=12)
+```
+
+go pathway analysis
+```{r}
+library(clusterProfiler)
+library(org.Hs.eg.db)
+genotype.genes <- unique(subset(out, fdr < 0.05)$feature)
+g.go <- bitr(genotype.genes, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+# can try different lists ex- bp, hallmark
+go.results <- enrichGO(g.go$ENTREZID, "org.Hs.eg.db", ont = "BP", pvalueCutoff = 0.05)
+go.results <- setReadable(go.results, OrgDb = org.Hs.eg.db)
+go.results.simp <- simplify(go.results, cutoff = 0.7, by = "p.adjust", select_fun = min)
+p <- dotplot(go.results.simp)
+p + scale_colour_gradient(low = "maroon", high = "grey")
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/rna_pathways.pdf", device = pdf, width = 8, height=8)
+
+
+# remove repeats
+p[["data"]] <- p[["data"]][c(1,4,5,6,10),]
+p + scale_colour_gradient(low = "maroon", high = "grey")
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/rna_pathways_remove_repeat.pdf", device = pdf, width = 8, height=8)
+```
+
+
+plot just significant polyA genes
+```{r}
+combine_df$rank <- rank(-combine_df$avg_log2FC)
+ggplot(combine_df, aes(x = avg_log2FC, y = rank, fill = fdr, colour=fdr)) + geom_point() + theme_bw()
+ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/signif_poly_in_rna.pdf", device = pdf, width = 12, height=12)
+```
+
+
+compare differential polyA and rna 
+```{r}
+library(sqldf)
+#m.genotype <- read.csv("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/seurat_objects/chromatin.m")
+diff_rna <- combine_df
+diff_polyA <- m.genotype
+
+diff_rna$rna_signif <- "no"
+diff_rna[diff_rna$fdr < .05 & abs(diff_rna$avg_log2FC) > .1, "rna_signif"] <- "yes"
+
+poly_signif_test <- diff_polyA[, c("symbol", "poly_signif", "p.value", "Estimate")]
+colnames(poly_signif_test) <- c("symbol", "poly_signif", "p_value", "Estimate")
+# collapse repeats in polyA
+diff_polyA_collapse <- sqldf("SELECT symbol, poly_signif, MIN(p_value), Estimate
+                         FROM poly_signif_test
+                         GROUP BY symbol")
+diff_polyA_collapse$poly_signif <- "no"
+diff_polyA_collapse[diff_polyA_collapse$p_value < .05 & abs(diff_polyA$Estimate) > .01, "poly_signif"] <- "yes"
+
+compare_signif <- merge(diff_polyA_collapse[,c("poly_signif", "symbol")], diff_rna[,c("rna_signif", "feature")], by.x = "symbol", by.y = "feature")
+
+res <- reshape2::melt(table(compare_signif$poly_signif, compare_signif$rna_signif))
+colnames(res) <- c("polyA", "RNA", "value")
+
+## only plots genes that are in both polyA and rna
+ggplot(data = res, aes(x = polyA, y = RNA, fill=value)) + geom_tile() + geom_text(aes(label = value), color = "white", size = 4)
+#ggsave("/sc/arion/projects/MDS/neville_CHIP_analysis/DGE_isoform/new_pasta/figures/compare_genes_og.pdf", device = pdf, width = 10, height=10)
+```
+
+
+run with all hspc
+```{r}
+ch_HSPC <- subset(CH, subset = predicted.celltype.l1 == "HSPC")
+
+# join layers 
+ch_HSPC[["joined"]] <- JoinLayers(ch_HSPC[["RNA"]])
+DefaultAssay(ch_HSPC) <- "joined"
+#normalize
+ch_HSPC <- NormalizeData(ch_HSPC)
+
+# filter out mito, ribo, lncRNA and ensg features
+matching_indices <- unique(c(grep("^MT-", rownames(ch_HSPC)), grep("^MRP", rownames(ch_HSPC)), grep("^RPS", rownames(ch_HSPC)), grep("^RPL", rownames(ch_HSPC)), grep("^ENSG", rownames(ch_HSPC)), grep("^LINC", rownames(ch_HSPC)), grep("-AS1$", rownames(ch_HSPC))))
+# subset by those features, will only keep rna/joined assay
+ch_HSPC <- ch_HSPC[-matching_indices,]
+
+# get top 2500 most variable genes
+ch_HSPC <- FindVariableFeatures(ch_HSPC, nfeatures = 2500)
+
+# counts data matrix
+mtx <- ch_HSPC[["joined"]]@layers[["data"]]
+# counts data matrix variable genes
+var_genes <- ch_HSPC[["joined"]][["vf_vst_counts_variable"]]
+mtx <- mtx[var_genes$vf_vst_counts_variable, ]
+```
+
+
+
+lmm with all hspc
+```{r}
+library(lme4)
+library(ggplot2)
+library(ggrepel)
+# get names of features in scaled data
+features <- rownames(ch_HSPC[["joined"]])
+# subset by top variable features
+var_data_genes <- features[var_genes$vf_vst_counts_variable]
+
+metadata = ch_HSPC@meta.data
+sample.column = "orig.ident"
+cluster.column = "predicted.celltype.l2"
+selected.clusters = c("HSC", "Early Eryth", "EMP")
+treatment.column = "genotype"
+treatment.levels = c("WT","MUT")
+reg = 1e-3
+
+# get name of features in scaled matrix
+# are the features in the same order as the input?
+rownames(mtx) <- var_data_genes
+colnames(mtx) <- rownames(ch_HSPC@assays[["joined"]]@cells)
+
+m <- mtx
+
+  
+# apply the function to each rowname of m
+out = lapply(rownames(m), function(x) {
+    dev = as.vector(t(m[x, ]))
+    names(dev) = colnames(m)
+    temp = metadata
+    temp = temp[, c(sample.column, cluster.column, treatment.column)]
+    temp[, x] = dev[rownames(temp)]
+    temp = temp[temp[, treatment.column] %in% treatment.levels, ]
+    temp = temp[temp[, cluster.column] %in% selected.clusters, ]
+    temp = temp[complete.cases(temp), ]
+    temp = data.frame(motif = temp[, x], treatment = temp[, treatment.column], sample = temp[, sample.column])
+    lmm1 = suppressMessages(lmer(data = temp, formula = motif ~  treatment + (1 | sample), REML = F))
+    lmm2 = suppressMessages(lmer(data = temp, formula = motif ~  (1 | sample), REML = F))
+    out = anova(lmm1, lmm2)
+    pval = out$`Pr(>Chisq)`[2]
+    delta = mean(temp$motif[temp$treatment == treatment.levels[2]], na.rm = T) - mean(temp$motif[temp$treatment == treatment.levels[1]], na.rm = T)
+    fc = (mean(temp$motif[temp$treatment == treatment.levels[2]], na.rm = T)+reg)/(mean(temp$motif[temp$treatment == treatment.levels[1]], na.rm = T)+reg)
+    final = c(pval = pval, delta = delta, fc = fc)
+    return(final)
+  })
+
+names(out) = rownames(m)
+out = as.data.frame(do.call(rbind, out))
+out$fdr = p.adjust(out$pval, method = "fdr")
+out$feature = rownames(out)
+
+# sort by p value
+out <- out[order(out$pval, decreasing = F),]
+
+# plot
+out$log10pval = -log10(out$pval)
+out$log2fc = log2(out$fc)
+l = rep(NA, nrow(out))
+cond = abs(out$delta) > 0.01 & out$fdr < .05
+l[cond] = out$feature[cond]
+ggplot(out, aes(x = log2fc, y = log10pval)) +
+  geom_point() +
+  xlim(-max(abs(out$log2fc)),max(abs(out$log2fc))) +
+  geom_hline(yintercept = -log10(0.05), lty = 2) +
+  geom_vline(xintercept = c(-log2(0.01),log2(0.01)), lty= 2) +
+  geom_text_repel(label = l) +
+  theme_classic() + labs(title = "DGE")
+```
+
